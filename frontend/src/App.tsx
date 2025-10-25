@@ -87,6 +87,7 @@ function Notepad() {
   const editorRef = useRef<any>(null);
   const docRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<WebrtcProvider | null>(null);
+  const bindingRef = useRef<any>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [users, setUsers] = useState<{ [key: string]: string }>({});
   const [currentUser, setCurrentUser] = useState("");
@@ -108,9 +109,8 @@ function Notepad() {
     });
 
     const awareness = provider.awareness;
-    // const userName = getRandomAnimal();
-    // setCurrentUser(userName);
-    const userName = "User"; // Commented out animal name functionality
+  const userName = getRandomAnimal();
+  setCurrentUser(userName);
     awareness.setLocalStateField("user", {
       name: userName,
       color: "#" + Math.floor(Math.random() * 16777215).toString(16),
@@ -133,7 +133,7 @@ function Notepad() {
     };
   }, [roomId, navigate]);
 
-  function handleEditorMount(editor: any, monaco: any) {
+    function handleEditorMount(editor: any, _monaco: any) {
     console.log("Editor mounted");
     editorRef.current = editor;
     if (docRef.current && providerRef.current) {
@@ -144,6 +144,7 @@ function Notepad() {
         new Set([editorRef.current]),
         providerRef.current.awareness
       );
+      bindingRef.current = binding;
       console.log("Binding created");
     } else {
       console.log("Doc or provider not ready");
@@ -201,15 +202,15 @@ function Notepad() {
             </div>
           </div>
 
-          {/* <h4 className="users-title">Active users</h4> */}
-          {/* <ul className="users-list">
+          <h4 className="users-title">Active users</h4>
+          <ul className="users-list">
             {Object.entries(users).map(([id, name]) => (
               <li key={id} className="user-item">
                 <div className="avatar">{name?.charAt(0) || "U"}</div>
                 <div className="user-name">{name}</div>
               </li>
             ))}
-          </ul> */}
+          </ul>
         </div>
       </div>
       <div className="editor-container">
