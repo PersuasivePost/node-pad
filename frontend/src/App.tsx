@@ -8,7 +8,8 @@ import {
 } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
-import { WebrtcProvider } from "y-webrtc";
+// import { WebrtcProvider } from "y-webrtc";
+import { WebsocketProvider } from "y-websocket";
 import { MonacoBinding } from "y-monaco";
 import "./App.css";
 
@@ -86,7 +87,8 @@ function Notepad() {
   const navigate = useNavigate();
   const editorRef = useRef<any>(null);
   const docRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<WebrtcProvider | null>(null);
+  // const providerRef = useRef<WebrtcProvider | null>(null);
+  const providerRef = useRef<WebsocketProvider | null>(null); // Changed from WebrtcProvider
   const bindingRef = useRef<any>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [users, setUsers] = useState<{ [key: string]: string }>({});
@@ -101,7 +103,11 @@ function Notepad() {
 
     const doc = new Y.Doc();
     docRef.current = doc;
-    const provider = new WebrtcProvider(roomId, doc);
+    const provider = new WebsocketProvider(
+      "wss://node-pad-1.onrender.com", // Render backend URL
+      roomId,
+      doc
+    );
     providerRef.current = provider;
 
     provider.on("status", (event: any) => {
