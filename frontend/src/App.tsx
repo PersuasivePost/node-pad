@@ -109,8 +109,8 @@ function Notepad() {
     });
 
     const awareness = provider.awareness;
-  const userName = getRandomAnimal();
-  setCurrentUser(userName);
+    const userName = getRandomAnimal();
+    setCurrentUser(userName);
     awareness.setLocalStateField("user", {
       name: userName,
       color: "#" + Math.floor(Math.random() * 16777215).toString(16),
@@ -133,7 +133,7 @@ function Notepad() {
     };
   }, [roomId, navigate]);
 
-    function handleEditorMount(editor: any, _monaco: any) {
+  function handleEditorMount(editor: any, _monaco: any) {
     console.log("Editor mounted");
     editorRef.current = editor;
     if (docRef.current && providerRef.current) {
