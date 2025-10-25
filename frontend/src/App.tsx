@@ -8,7 +8,7 @@ import {
 } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
-import { WebsocketProvider } from "y-websocket";
+import { WebrtcProvider } from "y-webrtc";
 import { MonacoBinding } from "y-monaco";
 import "./App.css";
 
@@ -86,7 +86,7 @@ function Notepad() {
   const navigate = useNavigate();
   const editorRef = useRef<any>(null);
   const docRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null);
+  const providerRef = useRef<WebrtcProvider | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [users, setUsers] = useState<{ [key: string]: string }>({});
   const [currentUser, setCurrentUser] = useState("");
@@ -100,11 +100,11 @@ function Notepad() {
 
     const doc = new Y.Doc();
     docRef.current = doc;
-    const provider = new WebsocketProvider("ws://localhost:8080", roomId, doc);
+    const provider = new WebrtcProvider(roomId, doc);
     providerRef.current = provider;
 
     provider.on("status", (event: any) => {
-      console.log("WebSocket status:", event.status);
+      console.log("WebRTC status:", event.status);
     });
 
     const awareness = provider.awareness;
@@ -119,7 +119,7 @@ function Notepad() {
     awareness.on("change", () => {
       const states = awareness.getStates();
       const newUsers: { [key: string]: string } = {};
-      states.forEach((state, clientId) => {
+      states.forEach((state: any, clientId: any) => {
         if (state.user) {
           newUsers[clientId] = state.user.name;
         }
