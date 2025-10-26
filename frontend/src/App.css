@@ -203,3 +203,123 @@ button {
   padding: 8px 12px;
   cursor: pointer;
 }
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 12px;
+  }
+
+  .sidebar.collapsed {
+    width: 100%;
+  }
+
+  .editor-container {
+    height: calc(100vh - 200px); /* Adjust based on sidebar height */
+  }
+
+  .room-header {
+    flex-wrap: wrap;
+  }
+
+  .room-id {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
+
+  .copy-btn {
+    padding: 4px 6px;
+    font-size: 12px;
+  }
+
+  .user-me {
+    gap: 8px;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .me-name {
+    font-size: 13px;
+  }
+
+  .me-role {
+    font-size: 10px;
+  }
+
+  .user-item {
+    padding: 6px;
+    gap: 8px;
+  }
+
+  .user-name {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebar {
+    padding: 8px;
+  }
+
+  .toggle-btn {
+    font-size: 16px;
+    margin-bottom: 16px;
+  }
+
+  .sidebar-inner {
+    gap: 16px;
+  }
+
+  .room-id {
+    font-size: 11px;
+    padding: 4px 6px;
+  }
+
+  .copy-btn {
+    padding: 3px 5px;
+    font-size: 11px;
+  }
+
+  .user-me {
+    gap: 6px;
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .me-name {
+    font-size: 12px;
+  }
+
+  .me-role {
+    font-size: 9px;
+  }
+
+  .user-item {
+    padding: 4px;
+    gap: 6px;
+  }
+
+  .user-name {
+    font-size: 11px;
+  }
+
+  .editor-container {
+    height: calc(100vh - 180px);
+  }
+}
