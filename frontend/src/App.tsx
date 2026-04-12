@@ -253,6 +253,14 @@ function Notepad() {
     }
   };
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
   return (
     <div className="app">
       <div className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
@@ -304,9 +312,66 @@ function Notepad() {
               </li>
             ))}
           </ul>
+
+          <div className="shared-files-section">
+            <h4 className="users-title">Shared Files</h4>
+
+            <label className="share-file-btn">
+              Share File
+              <input
+                type="file"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileUpload(e.target.files[0]);
+                  }
+                  e.target.value = ""; // Reset value for repeated uploads
+                }}
+              />
+            </label>
+
+            {sharedFiles.length === 0 ? (
+              <div className="no-files-msg">No files shared yet</div>
+            ) : (
+              <ul className="files-list">
+                {sharedFiles.map((f, i) => (
+                  <li key={i} className="file-item">
+                    <div className="file-info">
+                      <span className="file-name" title={f.originalName}>
+                        {f.originalName}
+                      </span>
+                      <span className="file-size">
+                        {formatFileSize(f.size)}
+                      </span>
+                    </div>
+                    <a
+                      href={`https://node-pad-1.onrender.com/file/${roomId}/${f.fileId}`}
+                      download={f.originalName}
+                      className="file-download"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      ↓
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
-      <div className="editor-container">
+      <div
+        className="editor-container"
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files[0]);
+          }
+        }}
+      >
         <Editor
           height="100%"
           width="100%"
