@@ -163,6 +163,39 @@ function Notepad() {
     };
   }, [roomId, navigate]);
 
+  async function handleFileUpload(file: File) {
+    if (!roomId || !filesArrayRef.current) return;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(
+        `https://node-pad-1.onrender.com/upload/${roomId}`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      filesArrayRef.current.push([
+        {
+          fileId: data.fileId,
+          originalName: data.originalName,
+          mimeType: data.mimeType,
+          size: data.size,
+          uploadedAt: Date.now(),
+        },
+      ]);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+    }
+  }
+
   function handleEditorMount(editor: any, _monaco: any) {
     console.log("Editor mounted");
     editorRef.current = editor;
@@ -194,6 +227,32 @@ function Notepad() {
 
   const [copyFeedback, setCopyFeedback] = useState("");
 
+  const handleClearRoom = async () => {
+    if (!roomId) return;
+    try {
+      const response = await fetch(
+        `https://node-pad-1.onrender.com/room/${roomId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        throw new Error(`Clear failed: ${response.statusText}`);
+      }
+
+      if (filesArrayRef.current) {
+        filesArrayRef.current.delete(0, filesArrayRef.current.length);
+      }
+
+      if (docRef.current) {
+        const monacoText = docRef.current.getText("monaco");
+        if (monacoText && monacoText.length > 0) {
+          monacoText.delete(0, monacoText.length);
+        }
+      }
+    } catch (error) {
+      console.error("Error clearing room:", error);
+    }
+  };
+
   return (
     <div className="app">
       <div className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
@@ -221,6 +280,10 @@ function Notepad() {
               )}
             </div>
           </div>
+
+          <button className="clear-room-btn" onClick={handleClearRoom}>
+            Clear Room
+          </button>
 
           <div className="user-me">
             <div className="avatar current">
