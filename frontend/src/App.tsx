@@ -90,9 +90,19 @@ function Notepad() {
   // const providerRef = useRef<WebrtcProvider | null>(null);
   const providerRef = useRef<WebsocketProvider | null>(null); // Changed from WebrtcProvider
   const bindingRef = useRef<any>(null);
+  const filesArrayRef = useRef<Y.Array<any> | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [users, setUsers] = useState<{ [key: string]: string }>({});
   const [currentUser, setCurrentUser] = useState("");
+  const [sharedFiles, setSharedFiles] = useState<
+    {
+      fileId: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      uploadedAt: number;
+    }[]
+  >([]);
 
   useEffect(() => {
     if (!roomId) {
@@ -103,10 +113,23 @@ function Notepad() {
 
     const doc = new Y.Doc();
     docRef.current = doc;
+
+    // Initialize files array
+    const filesArray = doc.getArray<any>("files");
+    filesArrayRef.current = filesArray;
+
+    // Set initial files from array
+    setSharedFiles(filesArray.toArray());
+
+    const handleFilesChange = () => {
+      setSharedFiles(filesArray.toArray());
+    };
+    filesArray.observe(handleFilesChange);
+
     const provider = new WebsocketProvider(
       "wss://node-pad-1.onrender.com", // Render backend URL
       roomId,
-      doc
+      doc,
     );
     providerRef.current = provider;
 
@@ -134,6 +157,7 @@ function Notepad() {
     });
 
     return () => {
+      filesArray.unobserve(handleFilesChange);
       provider.destroy();
       doc.destroy();
     };
@@ -148,7 +172,7 @@ function Notepad() {
         type,
         editorRef.current.getModel(),
         new Set([editorRef.current]),
-        providerRef.current.awareness
+        providerRef.current.awareness,
       );
       bindingRef.current = binding;
       console.log("Binding created");
