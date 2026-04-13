@@ -110,12 +110,21 @@ function Notepad() {
     }[]
   >([]);
 
+  const hasAutoClearedRef = useRef(false);
+
   useEffect(() => {
     if (!roomId) {
       const newRoomId = generateRoomId();
       navigate(`/room/${newRoomId}`, { replace: true });
       return;
     }
+
+    // Reset UI state immediately when entering a room to avoid showing stale data
+    // from the previously visited room while this room syncs.
+    setSharedFiles([]);
+    setUsers({});
+    setCurrentUser("");
+    setUploadState({ status: "idle" });
 
     const doc = new Y.Doc();
     docRef.current = doc;
@@ -132,6 +141,40 @@ function Notepad() {
     };
     filesArray.observe(handleFilesChange);
 
+    // Filter out stale file entries that don't exist on the backend anymore.
+    // (This can happen if the server cleared its in-memory store or restarted.)
+    const validateFilesExist = async (items: any[]) => {
+      const API_BASE =
+        window.location.hostname === "localhost"
+          ? "http://localhost:8080"
+          : "https://node-pad-1.onrender.com";
+
+      const checks = await Promise.all(
+        items.map(async (f) => {
+          try {
+            const r = await fetch(
+              `${API_BASE}/file/${roomId}/${encodeURIComponent(f.fileId)}`,
+              { method: "HEAD" },
+            );
+            return r.ok;
+          } catch {
+            return false;
+          }
+        }),
+      );
+
+      const filtered = items.filter((_, idx) => checks[idx]);
+      setSharedFiles(filtered);
+
+      // If we removed stale entries, also update the Yjs array so peers stop seeing them.
+      if (filtered.length !== items.length) {
+        filesArray.delete(0, filesArray.length);
+        if (filtered.length > 0) {
+          filesArray.push(filtered);
+        }
+      }
+    };
+
     const WS_URL =
       window.location.hostname === "localhost"
         ? "ws://localhost:8080"
@@ -143,7 +186,9 @@ function Notepad() {
     // Important: when joining an existing room, remote updates (including the "files" Y.Array)
     // may arrive *after* initial render. Re-sync once the provider is connected/synced.
     provider.on("sync", () => {
-      setSharedFiles(filesArray.toArray());
+      const items = filesArray.toArray();
+      setSharedFiles(items);
+      void validateFilesExist(items);
     });
 
     provider.on("status", (event: any) => {
@@ -158,6 +203,35 @@ function Notepad() {
       color: "#" + Math.floor(Math.random() * 16777215).toString(16),
     });
 
+    const API_BASE =
+      window.location.hostname === "localhost"
+        ? "http://localhost:8080"
+        : "https://node-pad-1.onrender.com";
+
+    const clearRoomLocally = () => {
+      // Clear shared files array
+      if (filesArrayRef.current) {
+        filesArrayRef.current.delete(0, filesArrayRef.current.length);
+      }
+
+      // Clear monaco doc
+      if (docRef.current) {
+        const monacoText = docRef.current.getText("monaco");
+        if (monacoText.length > 0) {
+          monacoText.delete(0, monacoText.length);
+        }
+      }
+    };
+
+    const clearRoomOnServer = async () => {
+      if (!roomId) return;
+      try {
+        await fetch(`${API_BASE}/room/${roomId}`, { method: "DELETE" });
+      } catch (err) {
+        console.error("Failed to clear room on server:", err);
+      }
+    };
+
     awareness.on("change", () => {
       const states = awareness.getStates();
       const newUsers: { [key: string]: string } = {};
@@ -167,9 +241,19 @@ function Notepad() {
         }
       });
       setUsers(newUsers);
+
+      if (!hasAutoClearedRef.current && states.size === 1) {
+        hasAutoClearedRef.current = true;
+        clearRoomLocally();
+        void clearRoomOnServer();
+      }
     });
 
     return () => {
+      clearRoomLocally();
+      void clearRoomOnServer();
+
+      hasAutoClearedRef.current = false;
       filesArray.unobserve(handleFilesChange);
       provider.destroy();
       doc.destroy();
@@ -390,7 +474,7 @@ function Notepad() {
                   if (e.target.files && e.target.files[0]) {
                     handleFileUpload(e.target.files[0]);
                   }
-                  e.target.value = ""; // Reset value for repeated uploads
+                  e.target.value = "";
                 }}
               />
             </label>
@@ -453,6 +537,30 @@ function Notepad() {
                       className="file-download"
                       target="_blank"
                       rel="noreferrer"
+                      onClick={async (e) => {
+                        const API_BASE =
+                          window.location.hostname === "localhost"
+                            ? "http://localhost:8080"
+                            : "https://node-pad-1.onrender.com";
+                        try {
+                          const r = await fetch(
+                            `${API_BASE}/file/${roomId}/${encodeURIComponent(f.fileId)}`,
+                            { method: "HEAD" },
+                          );
+                          if (r.status === 404 && filesArrayRef.current) {
+                            e.preventDefault();
+                            const arr = filesArrayRef.current.toArray();
+                            const idx = arr.findIndex(
+                              (x: any) => x?.fileId === f.fileId,
+                            );
+                            if (idx >= 0) {
+                              filesArrayRef.current.delete(idx, 1);
+                            }
+                          }
+                        } catch {
+                          // Ignore network errors and let the normal download attempt happen.
+                        }
+                      }}
                     >
                       ↓
                     </a>
