@@ -14,6 +14,16 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const fileStore = new Map();
+const roomClientCounts = new Map();
+
+function getRoomIdFromReq(req) {
+  try {
+    const pathname = new URL(req.url, "http://localhost").pathname;
+    return decodeURIComponent(pathname.replace(/^\//, ""));
+  } catch {
+    return "";
+  }
+}
 
 function getRoomFiles(roomId) {
   const result = [];
@@ -92,6 +102,21 @@ app.delete("/room/:roomId", (req, res) => {
 
 wss.on("connection", (ws, req) => {
   setupWSConnection(ws, req);
+
+  const roomId = getRoomIdFromReq(req);
+  if (roomId) {
+    roomClientCounts.set(roomId, (roomClientCounts.get(roomId) || 0) + 1);
+
+    ws.on("close", () => {
+      const next = (roomClientCounts.get(roomId) || 1) - 1;
+      if (next <= 0) {
+        roomClientCounts.delete(roomId);
+        clearRoomFiles(roomId);
+      } else {
+        roomClientCounts.set(roomId, next);
+      }
+    });
+  }
 });
 
 server.listen(8080, () => {
