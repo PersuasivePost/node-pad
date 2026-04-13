@@ -100,6 +100,23 @@ app.delete("/room/:roomId", (req, res) => {
   res.json({ cleared: true });
 });
 
+// Error handler (must be after routes)
+app.use((err, _req, res, _next) => {
+  // Multer errors (e.g., fileSize limit)
+  if (err && err.name === "MulterError") {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: "File too large",
+        maxSizeBytes: 20 * 1024 * 1024,
+      });
+    }
+    return res.status(400).json({ error: err.message, code: err.code });
+  }
+
+  console.error(err);
+  return res.status(500).json({ error: "Internal Server Error" });
+});
+
 wss.on("connection", (ws, req) => {
   setupWSConnection(ws, req);
 

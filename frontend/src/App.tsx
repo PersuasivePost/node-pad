@@ -94,6 +94,12 @@ function Notepad() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [users, setUsers] = useState<{ [key: string]: string }>({});
   const [currentUser, setCurrentUser] = useState("");
+  const [uploadState, setUploadState] = useState<{
+    status: "idle" | "uploading" | "success" | "error";
+    fileName?: string;
+    percent?: number;
+    message?: string;
+  }>({ status: "idle" });
   const [sharedFiles, setSharedFiles] = useState<
     {
       fileId: string;
@@ -173,24 +179,56 @@ function Notepad() {
   async function handleFileUpload(file: File) {
     if (!roomId || !filesArrayRef.current) return;
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
       const API_BASE =
         window.location.hostname === "localhost"
           ? "http://localhost:8080"
           : "https://node-pad-1.onrender.com";
 
-      const response = await fetch(`${API_BASE}/upload/${roomId}`, {
-        method: "POST",
-        body: formData,
+      setUploadState({
+        status: "uploading",
+        fileName: file.name,
+        percent: 0,
       });
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
-      }
+      const formData = new FormData();
+      formData.append("file", file);
 
-      const data = await response.json();
+      const data = await new Promise<{
+        fileId: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+      }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}/upload/${roomId}`);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = Math.round((e.loaded / e.total) * 100);
+            setUploadState({
+              status: "uploading",
+              fileName: file.name,
+              percent,
+            });
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch (err) {
+              reject(err);
+            }
+          } else {
+            reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.send(formData);
+      });
+
       filesArrayRef.current.push([
         {
           fileId: data.fileId,
@@ -200,8 +238,21 @@ function Notepad() {
           uploadedAt: Date.now(),
         },
       ]);
+
+      setUploadState({
+        status: "success",
+        fileName: file.name,
+        percent: 100,
+      });
+      setTimeout(() => setUploadState({ status: "idle" }), 1200);
     } catch (error) {
       console.error("Error uploading file:", error);
+      setUploadState({
+        status: "error",
+        fileName: file.name,
+        message: error instanceof Error ? error.message : "Upload failed",
+      });
+      setTimeout(() => setUploadState({ status: "idle" }), 2500);
     }
   }
 
@@ -343,6 +394,40 @@ function Notepad() {
                 }}
               />
             </label>
+
+            <div className="share-file-hint">
+              Please upload files below 20MB.
+            </div>
+
+            {uploadState.status !== "idle" && (
+              <div className="upload-status">
+                <div className="upload-status-row">
+                  <span className="upload-file-name">
+                    {uploadState.status === "uploading"
+                      ? `Uploading: ${uploadState.fileName}`
+                      : uploadState.status === "success"
+                        ? `Uploaded: ${uploadState.fileName}`
+                        : `Upload failed: ${uploadState.fileName}`}
+                  </span>
+                  {uploadState.status === "uploading" && (
+                    <span className="upload-percent">
+                      {uploadState.percent ?? 0}%
+                    </span>
+                  )}
+                </div>
+                {uploadState.status === "uploading" && (
+                  <div className="upload-bar">
+                    <div
+                      className="upload-bar-fill"
+                      style={{ width: `${uploadState.percent ?? 0}%` }}
+                    />
+                  </div>
+                )}
+                {uploadState.status === "error" && uploadState.message && (
+                  <div className="upload-error-msg">{uploadState.message}</div>
+                )}
+              </div>
+            )}
 
             {sharedFiles.length === 0 ? (
               <div className="no-files-msg">No files shared yet</div>
