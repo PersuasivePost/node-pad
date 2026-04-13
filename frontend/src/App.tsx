@@ -126,12 +126,19 @@ function Notepad() {
     };
     filesArray.observe(handleFilesChange);
 
-    const provider = new WebsocketProvider(
-      "wss://node-pad-1.onrender.com", // Render backend URL
-      roomId,
-      doc,
-    );
+    const WS_URL =
+      window.location.hostname === "localhost"
+        ? "ws://localhost:8080"
+        : "wss://node-pad-1.onrender.com";
+
+    const provider = new WebsocketProvider(WS_URL, roomId, doc);
     providerRef.current = provider;
+
+    // Important: when joining an existing room, remote updates (including the "files" Y.Array)
+    // may arrive *after* initial render. Re-sync once the provider is connected/synced.
+    provider.on("sync", () => {
+      setSharedFiles(filesArray.toArray());
+    });
 
     provider.on("status", (event: any) => {
       console.log("WebRTC status:", event.status);
@@ -169,13 +176,15 @@ function Notepad() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(
-        `https://node-pad-1.onrender.com/upload/${roomId}`,
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
+      const API_BASE =
+        window.location.hostname === "localhost"
+          ? "http://localhost:8080"
+          : "https://node-pad-1.onrender.com";
+
+      const response = await fetch(`${API_BASE}/upload/${roomId}`, {
+        method: "POST",
+        body: formData,
+      });
 
       if (!response.ok) {
         throw new Error(`Upload failed: ${response.statusText}`);
@@ -230,10 +239,14 @@ function Notepad() {
   const handleClearRoom = async () => {
     if (!roomId) return;
     try {
-      const response = await fetch(
-        `https://node-pad-1.onrender.com/room/${roomId}`,
-        { method: "DELETE" },
-      );
+      const API_BASE =
+        window.location.hostname === "localhost"
+          ? "http://localhost:8080"
+          : "https://node-pad-1.onrender.com";
+
+      const response = await fetch(`${API_BASE}/room/${roomId}`, {
+        method: "DELETE",
+      });
       if (!response.ok) {
         throw new Error(`Clear failed: ${response.statusText}`);
       }
@@ -320,6 +333,7 @@ function Notepad() {
               Share File
               <input
                 type="file"
+                accept="*/*"
                 style={{ display: "none" }}
                 onChange={(e) => {
                   if (e.target.files && e.target.files[0]) {
@@ -345,7 +359,11 @@ function Notepad() {
                       </span>
                     </div>
                     <a
-                      href={`https://node-pad-1.onrender.com/file/${roomId}/${f.fileId}`}
+                      href={`${
+                        window.location.hostname === "localhost"
+                          ? "http://localhost:8080"
+                          : "https://node-pad-1.onrender.com"
+                      }/file/${roomId}/${f.fileId}`}
                       download={f.originalName}
                       className="file-download"
                       target="_blank"
