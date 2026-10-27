@@ -1,10 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#ffffff" />
+    <meta
+      name="description"
+      content="Node-Pad — a minimal real-time collaborative notepad. Multiple notes per room, live cursors and instant file sharing. No sign-up."
+    />
+    <meta property="og:title" content="Node-Pad — collaborative notepad" />
+    <meta
+      property="og:description"
+      content="Open a room, share the link, type together and swap files. No sign-up."
+    />
+    <meta property="og:type" content="website" />
     <title>Node-Pad</title>
+    <script>
+      // Apply saved theme before paint to avoid a flash
+      try {
+        var t = localStorage.getItem("nodepad:theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

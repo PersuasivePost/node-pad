@@ -1,605 +1,407 @@
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BrowserRouter as Router,
-  Routes,
+  Navigate,
   Route,
+  Routes,
   useParams,
-  useNavigate,
 } from "react-router-dom";
-import Editor from "@monaco-editor/react";
-import * as Y from "yjs";
-// import { WebrtcProvider } from "y-webrtc";
-import { WebsocketProvider } from "y-websocket";
-import { MonacoBinding } from "y-monaco";
+import { CollabEditor } from "./components/CollabEditor";
+import { GitHubStar } from "./components/GitHubStar";
+import { LinkIcon, MoonIcon, PaperclipIcon, ShareIcon, SunIcon, UploadIcon } from "./components/Icons";
+import { PadTabs } from "./components/PadTabs";
+import { SidePanel } from "./components/SidePanel";
+import { DEFAULT_PAD_ID } from "./config";
+import { padTextKey, useRoom, type Peer } from "./hooks/useRoom";
+import { useUploads } from "./hooks/useUploads";
+import { downloadText, generateId, isTouchDevice, slugify } from "./lib/utils";
 import "./App.css";
 
-const animals = [
-  "Elephant",
-  "Tiger",
-  "Lion",
-  "Giraffe",
-  "Zebra",
-  "Panda",
-  "Koala",
-  "Kangaroo",
-  "Monkey",
-  "Bear",
-  "Wolf",
-  "Fox",
-  "Rabbit",
-  "Deer",
-  "Horse",
-  "Cow",
-  "Pig",
-  "Sheep",
-  "Goat",
-  "Chicken",
-  "Duck",
-  "Goose",
-  "Turkey",
-  "Peacock",
-  "Owl",
-  "Eagle",
-  "Hawk",
-  "Falcon",
-  "Sparrow",
-  "Robin",
-  "Bluebird",
-  "Cardinal",
-  "Finch",
-  "Canary",
-  "Parrot",
-  "Cockatoo",
-  "Macaw",
-  "Toucan",
-  "Flamingo",
-  "Swan",
-  "Pelican",
-  "Heron",
-  "Crane",
-  "Stork",
-  "Ibis",
-  "Egret",
-  "Duck",
-  "Goose",
-  "Turkey",
-  "Peacock",
-  "Owl",
-  "Eagle",
+const LANGUAGES: [string, string][] = [
+  ["plaintext", "Plain text"],
+  ["markdown", "Markdown"],
+  ["javascript", "JavaScript"],
+  ["typescript", "TypeScript"],
+  ["python", "Python"],
+  ["java", "Java"],
+  ["cpp", "C / C++"],
+  ["go", "Go"],
+  ["rust", "Rust"],
+  ["sol", "Solidity"],
+  ["json", "JSON"],
+  ["html", "HTML"],
+  ["css", "CSS"],
+  ["sql", "SQL"],
+  ["shell", "Shell"],
+  ["yaml", "YAML"],
 ];
 
-function generateRoomId() {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-function getRandomAnimal() {
-  return animals[Math.floor(Math.random() * animals.length)];
-}
-
-function Notepad() {
-  const { roomId } = useParams<{ roomId: string }>();
-  const navigate = useNavigate();
-  const editorRef = useRef<any>(null);
-  const docRef = useRef<Y.Doc | null>(null);
-  // const providerRef = useRef<WebrtcProvider | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null); // Changed from WebrtcProvider
-  const bindingRef = useRef<any>(null);
-  const filesArrayRef = useRef<Y.Array<any> | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [users, setUsers] = useState<{ [key: string]: string }>({});
-  const [currentUser, setCurrentUser] = useState("");
-  const [uploadState, setUploadState] = useState<{
-    status: "idle" | "uploading" | "success" | "error";
-    fileName?: string;
-    percent?: number;
-    message?: string;
-  }>({ status: "idle" });
-  const [sharedFiles, setSharedFiles] = useState<
-    {
-      fileId: string;
-      originalName: string;
-      mimeType: string;
-      size: number;
-      uploadedAt: number;
-    }[]
-  >([]);
-
-  const hasAutoClearedRef = useRef(false);
-
-  useEffect(() => {
-    if (!roomId) {
-      const newRoomId = generateRoomId();
-      navigate(`/room/${newRoomId}`, { replace: true });
-      return;
+function usePersistentState<T extends string>(key: string, initial: () => T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      return (localStorage.getItem(key) as T) || initial();
+    } catch {
+      return initial();
     }
-
-    // Reset UI state immediately when entering a room to avoid showing stale data
-    // from the previously visited room while this room syncs.
-    setSharedFiles([]);
-    setUsers({});
-    setCurrentUser("");
-    setUploadState({ status: "idle" });
-
-    const doc = new Y.Doc();
-    docRef.current = doc;
-
-    // Initialize files array
-    const filesArray = doc.getArray<any>("files");
-    filesArrayRef.current = filesArray;
-
-    // Set initial files from array
-    setSharedFiles(filesArray.toArray());
-
-    const handleFilesChange = () => {
-      setSharedFiles(filesArray.toArray());
-    };
-    filesArray.observe(handleFilesChange);
-
-    // Filter out stale file entries that don't exist on the backend anymore.
-    // (This can happen if the server cleared its in-memory store or restarted.)
-    const validateFilesExist = async (items: any[]) => {
-      const API_BASE =
-        window.location.hostname === "localhost"
-          ? "http://localhost:8080"
-          : "https://node-pad-1.onrender.com";
-
-      const checks = await Promise.all(
-        items.map(async (f) => {
-          try {
-            const r = await fetch(
-              `${API_BASE}/file/${roomId}/${encodeURIComponent(f.fileId)}`,
-              { method: "HEAD" },
-            );
-            return r.ok;
-          } catch {
-            return false;
-          }
-        }),
-      );
-
-      const filtered = items.filter((_, idx) => checks[idx]);
-      setSharedFiles(filtered);
-
-      // If we removed stale entries, also update the Yjs array so peers stop seeing them.
-      if (filtered.length !== items.length) {
-        filesArray.delete(0, filesArray.length);
-        if (filtered.length > 0) {
-          filesArray.push(filtered);
-        }
-      }
-    };
-
-    const WS_URL =
-      window.location.hostname === "localhost"
-        ? "ws://localhost:8080"
-        : "wss://node-pad-1.onrender.com";
-
-    const provider = new WebsocketProvider(WS_URL, roomId, doc);
-    providerRef.current = provider;
-
-    // Important: when joining an existing room, remote updates (including the "files" Y.Array)
-    // may arrive *after* initial render. Re-sync once the provider is connected/synced.
-    provider.on("sync", () => {
-      const items = filesArray.toArray();
-      setSharedFiles(items);
-      void validateFilesExist(items);
-    });
-
-    provider.on("status", (event: any) => {
-      console.log("WebRTC status:", event.status);
-    });
-
-    const awareness = provider.awareness;
-    const userName = getRandomAnimal();
-    setCurrentUser(userName);
-    awareness.setLocalStateField("user", {
-      name: userName,
-      color: "#" + Math.floor(Math.random() * 16777215).toString(16),
-    });
-
-    const API_BASE =
-      window.location.hostname === "localhost"
-        ? "http://localhost:8080"
-        : "https://node-pad-1.onrender.com";
-
-    const clearRoomLocally = () => {
-      // Clear shared files array
-      if (filesArrayRef.current) {
-        filesArrayRef.current.delete(0, filesArrayRef.current.length);
-      }
-
-      // Clear monaco doc
-      if (docRef.current) {
-        const monacoText = docRef.current.getText("monaco");
-        if (monacoText.length > 0) {
-          monacoText.delete(0, monacoText.length);
-        }
-      }
-    };
-
-    const clearRoomOnServer = async () => {
-      if (!roomId) return;
+  });
+  const set = useCallback(
+    (v: T) => {
+      setValue(v);
       try {
-        await fetch(`${API_BASE}/room/${roomId}`, { method: "DELETE" });
-      } catch (err) {
-        console.error("Failed to clear room on server:", err);
+        localStorage.setItem(key, v);
+      } catch {
+        /* ignore */
+      }
+    },
+    [key],
+  );
+  return [value, set] as const;
+}
+
+function useTheme() {
+  const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const [theme, setTheme] = usePersistentState<"light" | "dark">("nodepad:theme", () =>
+    systemDark() ? "dark" : "light",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#0b0b0c" : "#ffffff");
+  }, [theme]);
+  return [theme, setTheme] as const;
+}
+
+function useToast() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const show = useCallback((m: string) => {
+    setMsg(m);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setMsg(null), 1800);
+  }, []);
+  return [msg, show] as const;
+}
+
+const readPadFromHash = () => decodeURIComponent(window.location.hash.slice(1)) || DEFAULT_PAD_ID;
+
+function Notepad({ roomId }: { roomId: string }) {
+  const room = useRoom(roomId);
+  const { doc, provider, pads, peers, files, status, synced } = room;
+
+  const [theme, setTheme] = useTheme();
+  const [editorMode, setEditorMode] = usePersistentState<"code" | "simple">("nodepad:editor", () =>
+    isTouchDevice() ? "simple" : "code",
+  );
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth >= 1024);
+  const [activeId, setActiveId] = useState(readPadFromHash);
+  const [toast, showToast] = useToast();
+  const [dragging, setDragging] = useState(false);
+  const [stats, setStats] = useState({ chars: 0, words: 0 });
+  const [slowServer, setSlowServer] = useState(false);
+
+  const activePad = pads.find((p) => p.id === activeId) ?? pads[0];
+  const { uploads, upload, dismiss } = useUploads(roomId, room.me.name, room.addFile);
+
+  // Keep the active note in the URL hash so a shared link opens the same note.
+  useEffect(() => {
+    if (!synced) return;
+    const hash = activePad.id === DEFAULT_PAD_ID ? "" : `#${encodeURIComponent(activePad.id)}`;
+    if (window.location.hash !== hash) {
+      history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+    }
+  }, [activePad.id, synced]);
+
+  // Word / character count for the active note
+  useEffect(() => {
+    if (!doc) return;
+    const text = doc.getText(padTextKey(activePad.id));
+    const update = () => {
+      const s = text.toString();
+      setStats({ chars: s.length, words: s.trim() ? s.trim().split(/\s+/).length : 0 });
+    };
+    update();
+    text.observe(update);
+    return () => text.unobserve(update);
+  }, [doc, activePad.id]);
+
+  // Free-tier backends cold-start slowly; tell people instead of looking broken.
+  useEffect(() => {
+    if (status === "connected") return setSlowServer(false);
+    const t = window.setTimeout(() => setSlowServer(true), 3500);
+    return () => window.clearTimeout(t);
+  }, [status]);
+
+  // Drag files anywhere onto the page
+  useEffect(() => {
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setDragging(true);
+    };
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    };
+    const over = (e: DragEvent) => hasFiles(e) && e.preventDefault();
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      if (e.dataTransfer?.files.length) {
+        upload(e.dataTransfer.files);
+        setPanelOpen(true);
       }
     };
-
-    awareness.on("change", () => {
-      const states = awareness.getStates();
-      const newUsers: { [key: string]: string } = {};
-      states.forEach((state: any, clientId: any) => {
-        if (state.user) {
-          newUsers[clientId] = state.user.name;
-        }
-      });
-      setUsers(newUsers);
-
-      if (!hasAutoClearedRef.current && states.size === 1) {
-        hasAutoClearedRef.current = true;
-        clearRoomLocally();
-        void clearRoomOnServer();
-      }
-    });
-
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
     return () => {
-      clearRoomLocally();
-      void clearRoomOnServer();
-
-      hasAutoClearedRef.current = false;
-      filesArray.unobserve(handleFilesChange);
-      provider.destroy();
-      doc.destroy();
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
     };
-  }, [roomId, navigate]);
+  }, [upload]);
 
-  async function handleFileUpload(file: File) {
-    if (!roomId || !filesArrayRef.current) return;
+  // Paste a file / screenshot to share it
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const list = e.clipboardData?.files;
+      if (!list?.length) return;
+      e.preventDefault();
+      upload(list);
+      setPanelOpen(true);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [upload]);
+
+  const canNativeShare = typeof navigator.share === "function" && isTouchDevice();
+
+  const copyLink = async () => {
     try {
-      const API_BASE =
-        window.location.hostname === "localhost"
-          ? "http://localhost:8080"
-          : "https://node-pad-1.onrender.com";
-
-      setUploadState({
-        status: "uploading",
-        fileName: file.name,
-        percent: 0,
-      });
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const data = await new Promise<{
-        fileId: string;
-        originalName: string;
-        mimeType: string;
-        size: number;
-      }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", `${API_BASE}/upload/${roomId}`);
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = Math.round((e.loaded / e.total) * 100);
-            setUploadState({
-              status: "uploading",
-              fileName: file.name,
-              percent,
-            });
-          }
-        };
-
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch (err) {
-              reject(err);
-            }
-          } else {
-            reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
-          }
-        };
-
-        xhr.onerror = () => reject(new Error("Network error"));
-        xhr.send(formData);
-      });
-
-      filesArrayRef.current.push([
-        {
-          fileId: data.fileId,
-          originalName: data.originalName,
-          mimeType: data.mimeType,
-          size: data.size,
-          uploadedAt: Date.now(),
-        },
-      ]);
-
-      setUploadState({
-        status: "success",
-        fileName: file.name,
-        percent: 100,
-      });
-      setTimeout(() => setUploadState({ status: "idle" }), 1200);
-    } catch (error) {
-      console.error("Error uploading file:", error);
-      setUploadState({
-        status: "error",
-        fileName: file.name,
-        message: error instanceof Error ? error.message : "Upload failed",
-      });
-      setTimeout(() => setUploadState({ status: "idle" }), 2500);
+      await navigator.clipboard.writeText(window.location.href);
+      showToast("Link copied — send it to anyone");
+    } catch {
+      showToast("Couldn't copy, copy the URL from the address bar");
     }
-  }
-
-  function handleEditorMount(editor: any, _monaco: any) {
-    console.log("Editor mounted");
-    editorRef.current = editor;
-    if (docRef.current && providerRef.current) {
-      const type = docRef.current.getText("monaco");
-      const binding = new MonacoBinding(
-        type,
-        editorRef.current.getModel(),
-        new Set([editorRef.current]),
-        providerRef.current.awareness,
-      );
-      bindingRef.current = binding;
-      console.log("Binding created");
-    } else {
-      console.log("Doc or provider not ready");
-    }
-  }
-
-  const copyUrl = () => {
-    navigator.clipboard.writeText(window.location.href);
-    // show temporary feedback instead of alert
-    setCopyFeedback("Copied!");
-    setTimeout(() => setCopyFeedback(""), 1500);
   };
 
-  const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
-  };
-
-  const [copyFeedback, setCopyFeedback] = useState("");
-
-  const handleClearRoom = async () => {
-    if (!roomId) return;
+  const nativeShare = async () => {
     try {
-      const API_BASE =
-        window.location.hostname === "localhost"
-          ? "http://localhost:8080"
-          : "https://node-pad-1.onrender.com";
-
-      const response = await fetch(`${API_BASE}/room/${roomId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) {
-        throw new Error(`Clear failed: ${response.statusText}`);
-      }
-
-      if (filesArrayRef.current) {
-        filesArrayRef.current.delete(0, filesArrayRef.current.length);
-      }
-
-      if (docRef.current) {
-        const monacoText = docRef.current.getText("monaco");
-        if (monacoText && monacoText.length > 0) {
-          monacoText.delete(0, monacoText.length);
-        }
-      }
-    } catch (error) {
-      console.error("Error clearing room:", error);
+      await navigator.share({ title: "Node-Pad", text: "Join my Node-Pad room", url: window.location.href });
+    } catch {
+      /* user cancelled */
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  const addPad = () => {
+    const id = room.addPad();
+    if (id) setActiveId(id);
   };
+
+  const closePad = (id: string) => {
+    if (!doc) return;
+    const pad = pads.find((p) => p.id === id);
+    const hasText = doc.getText(padTextKey(id)).length > 0;
+    if (hasText && !window.confirm(`Delete "${pad?.name}" for everyone in this room?`)) return;
+    if (id === activePad.id) {
+      const idx = pads.findIndex((p) => p.id === id);
+      setActiveId((pads[idx + 1] ?? pads[idx - 1]).id);
+    }
+    room.deletePad(id);
+  };
+
+  const clearRoom = async () => {
+    if (!window.confirm("Clear all notes and files in this room for everyone?")) return;
+    await room.clearRoom();
+    setActiveId(DEFAULT_PAD_ID);
+    showToast("Room cleared");
+  };
+
+  const downloadPad = () => {
+    if (!doc) return;
+    const ext = activePad.lang && activePad.lang !== "plaintext" ? ({ markdown: "md", javascript: "js", typescript: "ts", python: "py", rust: "rs", shell: "sh", sol: "sol" } as Record<string, string>)[activePad.lang] ?? activePad.lang : "txt";
+    downloadText(`${slugify(activePad.name)}.${ext}`, doc.getText(padTextKey(activePad.id)).toString());
+  };
+
+  const statusLabel =
+    status === "connected" ? (synced ? "Live" : "Syncing…") : status === "connecting" ? "Connecting…" : "Offline";
 
   return (
     <div className="app">
-      <div className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <button
-          className="toggle-btn"
-          onClick={toggleSidebar}
-          aria-label="Toggle sidebar"
-        >
-          {/* {sidebarCollapsed ? "→" : "←"} */}
-        </button>
-        <h3>Node-Pad</h3>
-        <div className="sidebar-inner">
-          <div className="room-header">
-            <div className="room-id">{roomId}</div>
-            <div className="copy-wrap">
-              <button
-                className="copy-btn"
-                onClick={copyUrl}
-                title="Copy room URL"
-              >
-                ⧉
-              </button>
-              {copyFeedback && (
-                <span className="copy-feedback">{copyFeedback}</span>
-              )}
-            </div>
-          </div>
+      <header className="topbar">
+        <div className="brand">
+          <span className="logo" aria-hidden="true">
+            N
+          </span>
+          <span className="brand-name">Node-Pad</span>
+        </div>
 
-          <button className="clear-room-btn" onClick={handleClearRoom}>
-            Clear Room
+        <PadTabs
+          pads={pads}
+          activeId={activePad.id}
+          onSelect={setActiveId}
+          onAdd={addPad}
+          onRename={(id, name) => room.updatePad(id, { name })}
+          onClose={closePad}
+        />
+
+        <div className="top-actions">
+          <AvatarStack peers={peers} />
+          <button
+            className="btn primary"
+            onClick={canNativeShare ? nativeShare : copyLink}
+            aria-label="Share room link"
+          >
+            {canNativeShare ? <ShareIcon size={14} /> : <LinkIcon size={14} />}
+            <span className="hide-sm">Share</span>
           </button>
+          <GitHubStar />
+          <button
+            className="icon-btn"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            title="Toggle theme"
+          >
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <button
+            className={`icon-btn files-toggle ${panelOpen ? "on" : ""}`}
+            onClick={() => setPanelOpen((o) => !o)}
+            aria-label="Files and people"
+            aria-expanded={panelOpen}
+            title="Files & people"
+          >
+            <PaperclipIcon />
+            {files.length > 0 && <span className="badge">{files.length}</span>}
+          </button>
+        </div>
+      </header>
 
-          <div className="user-me">
-            <div className="avatar current">
-              {currentUser?.charAt(0) || "U"}
-            </div>
-            <div className="me-info">
-              <div className="me-name">{currentUser || "User"}</div>
-              <div className="me-role">You</div>
-            </div>
-          </div>
+      {slowServer && status !== "connected" && (
+        <div className="banner" role="status">
+          <span className="spinner" /> Waking up the server — free-tier cold starts can take ~30–60s. You can start typing.
+        </div>
+      )}
 
-          <h4 className="users-title">Active users</h4>
-          <ul className="users-list">
-            {Object.entries(users).map(([id, name]) => (
-              <li key={id} className="user-item">
-                <div className="avatar">{name?.charAt(0) || "U"}</div>
-                <div className="user-name">{name}</div>
-              </li>
+      <div className="workspace">
+        <main className="editor-area">
+          {doc && provider ? (
+            <CollabEditor
+              doc={doc}
+              awareness={provider.awareness}
+              padId={activePad.id}
+              lang={activePad.lang ?? "plaintext"}
+              mode={editorMode}
+              dark={theme === "dark"}
+              peers={peers}
+            />
+          ) : (
+            <div className="editor-loading">Connecting…</div>
+          )}
+        </main>
+
+        <aside className={`panel ${panelOpen ? "open" : ""}`} aria-label="Room panel">
+          <SidePanel
+            roomId={roomId}
+            peers={peers}
+            files={files}
+            uploads={uploads}
+            onUpload={upload}
+            onDismissUpload={dismiss}
+            onRemoveFile={room.removeFile}
+            onCopyLink={copyLink}
+            onShare={canNativeShare ? nativeShare : undefined}
+            onClearRoom={clearRoom}
+            editorMode={editorMode}
+            onEditorMode={setEditorMode}
+            onClose={() => setPanelOpen(false)}
+            toast={showToast}
+          />
+        </aside>
+        {panelOpen && <div className="backdrop" onClick={() => setPanelOpen(false)} />}
+      </div>
+
+      <footer className="statusbar">
+        <span className={`conn ${status}`} title={`Server: ${status}`}>
+          <i className="dot" /> {statusLabel}
+          <span className="hide-sm"> · {peers.length} online</span>
+        </span>
+        <span className="spacer" />
+        <span className="stats">
+          {stats.words.toLocaleString()} words<span className="hide-sm"> · {stats.chars.toLocaleString()} chars</span>
+        </span>
+        {editorMode === "code" && (
+          <select
+            className="lang"
+            value={activePad.lang ?? "plaintext"}
+            onChange={(e) => room.updatePad(activePad.id, { lang: e.target.value })}
+            aria-label="Syntax highlighting"
+          >
+            {LANGUAGES.map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
             ))}
-          </ul>
+          </select>
+        )}
+        <button className="link-btn" onClick={downloadPad} title="Download this note">
+          Download
+        </button>
+      </footer>
 
-          <div className="shared-files-section">
-            <h4 className="users-title">Shared Files</h4>
-
-            <label className="share-file-btn">
-              Share File
-              <input
-                type="file"
-                accept="*/*"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    handleFileUpload(e.target.files[0]);
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </label>
-
-            <div className="share-file-hint">
-              Please upload files below 20MB.
-            </div>
-
-            {uploadState.status !== "idle" && (
-              <div className="upload-status">
-                <div className="upload-status-row">
-                  <span className="upload-file-name">
-                    {uploadState.status === "uploading"
-                      ? `Uploading: ${uploadState.fileName}`
-                      : uploadState.status === "success"
-                        ? `Uploaded: ${uploadState.fileName}`
-                        : `Upload failed: ${uploadState.fileName}`}
-                  </span>
-                  {uploadState.status === "uploading" && (
-                    <span className="upload-percent">
-                      {uploadState.percent ?? 0}%
-                    </span>
-                  )}
-                </div>
-                {uploadState.status === "uploading" && (
-                  <div className="upload-bar">
-                    <div
-                      className="upload-bar-fill"
-                      style={{ width: `${uploadState.percent ?? 0}%` }}
-                    />
-                  </div>
-                )}
-                {uploadState.status === "error" && uploadState.message && (
-                  <div className="upload-error-msg">{uploadState.message}</div>
-                )}
-              </div>
-            )}
-
-            {sharedFiles.length === 0 ? (
-              <div className="no-files-msg">No files shared yet</div>
-            ) : (
-              <ul className="files-list">
-                {sharedFiles.map((f, i) => (
-                  <li key={i} className="file-item">
-                    <div className="file-info">
-                      <span className="file-name" title={f.originalName}>
-                        {f.originalName}
-                      </span>
-                      <span className="file-size">
-                        {formatFileSize(f.size)}
-                      </span>
-                    </div>
-                    <a
-                      href={`${
-                        window.location.hostname === "localhost"
-                          ? "http://localhost:8080"
-                          : "https://node-pad-1.onrender.com"
-                      }/file/${roomId}/${f.fileId}`}
-                      download={f.originalName}
-                      className="file-download"
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={async (e) => {
-                        const API_BASE =
-                          window.location.hostname === "localhost"
-                            ? "http://localhost:8080"
-                            : "https://node-pad-1.onrender.com";
-                        try {
-                          const r = await fetch(
-                            `${API_BASE}/file/${roomId}/${encodeURIComponent(f.fileId)}`,
-                            { method: "HEAD" },
-                          );
-                          if (r.status === 404 && filesArrayRef.current) {
-                            e.preventDefault();
-                            const arr = filesArrayRef.current.toArray();
-                            const idx = arr.findIndex(
-                              (x: any) => x?.fileId === f.fileId,
-                            );
-                            if (idx >= 0) {
-                              filesArrayRef.current.delete(idx, 1);
-                            }
-                          }
-                        } catch {
-                          // Ignore network errors and let the normal download attempt happen.
-                        }
-                      }}
-                    >
-                      ↓
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
+      {dragging && (
+        <div className="drop-overlay">
+          <div className="drop-card">
+            <UploadIcon size={28} />
+            <strong>Drop to share with the room</strong>
+            <span>Up to 20 MB per file</span>
           </div>
         </div>
-      </div>
-      <div
-        className="editor-container"
-        onDragOver={(e) => {
-          e.preventDefault();
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            handleFileUpload(e.dataTransfer.files[0]);
-          }
-        }}
-      >
-        <Editor
-          height="100%"
-          width="100%"
-          theme="vs-light"
-          onMount={handleEditorMount}
-        />
-      </div>
+      )}
+
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
     </div>
   );
+}
+
+function AvatarStack({ peers }: { peers: Peer[] }) {
+  const shown = peers.slice(0, 4);
+  return (
+    <div className="avatar-stack" title={peers.map((p) => p.name + (p.isMe ? " (you)" : "")).join(", ")}>
+      {shown.map((p) => (
+        <span key={p.clientId} className="avatar sm" style={{ background: p.color }}>
+          {p.name.charAt(0)}
+        </span>
+      ))}
+      {peers.length > shown.length && <span className="avatar sm more">+{peers.length - shown.length}</span>}
+    </div>
+  );
+}
+
+function RoomRoute() {
+  const { roomId } = useParams<{ roomId: string }>();
+  if (!roomId) return <Navigate to="/" replace />;
+  return <Notepad key={roomId} roomId={roomId} />;
 }
 
 function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Notepad />} />
-        <Route path="/room/:roomId" element={<Notepad />} />
+        <Route path="/room/:roomId" element={<RoomRoute />} />
+        <Route path="*" element={<Navigate to={`/room/${generateId(6)}`} replace />} />
       </Routes>
     </Router>
   );
